@@ -5,3 +5,12 @@ version = 3
 [[package]]
 name = "bf"
 version = "0.1.0"
+dependencies = [
+ "value-enum",
+]
+
+[[package]]
+name = "value-enum"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e763ed0ffa0e9cd35f6ef86b2fec25b66fb9900946ba28589b9e4144a04a4d6f"
