@@ -1,10 +1,10 @@
-use std::io::{stdin, Read, Error};
+use std::io::{stdin};
+use read_char::read_next_char;
 use value_enum::value_enum;
-use std::fmt;
 
 value_enum!{
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum Token: char {
+    enum Bfi: char {
         Plus     = '+',
         Minus    = '-',
         Left     = '<',
@@ -16,63 +16,124 @@ value_enum!{
     }
 }
 
-#[derive(Debug, Clone)]
-struct Program(Vec<Token>);
-
-impl From<&str> for Program {
-    fn from(code: &str) -> Program {
-        Program(code.chars().filter_map(|c| Token::try_from(c).ok()).collect())
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bci {
+    Plus(usize),
+    Minus(usize),
+    Left(usize),
+    Right(usize),
+    LBracket,
+    RBracket,
+    Dot,
+    Comma
 }
 
-impl fmt::Display for Program {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn read_u8() -> Result<u8, Error> {
-            let mut input = [0u8; 1];
-            stdin().read_exact(&mut input)?;
-            Ok(input[0])
-        }
-    
-        let mut mem = Box::new([0isize; 65536]);
-        let mut ptr = 0u16;
-        let mut skip = 0;
-        let mut stack = Vec::new();
-        let mut ip = 0usize;
-        while ip < self.0.len() {
-            if skip == 0 {
-                match self.0[ip] {
-                    Token::Plus     => { mem[ptr as usize] += 1;                                              },
-                    Token::Minus    => { mem[ptr as usize] -= 1;                                              },
-                    Token::Left     => { ptr -= 1;                                                            },
-                    Token::Right    => { ptr += 1;                                                            },
-                    Token::LBracket => { if mem[ptr as usize] == 0 { skip = 1; } else { stack.push(ip); }     },
-                    Token::RBracket => { ip = stack.pop().unwrap_or(ip + 1) - 1;                              },
-                    Token::Dot      => { write!(f, "{}", char::from_u32(mem[ptr as usize] as u32).unwrap())?; },
-                    Token::Comma    => { mem[ptr as usize] = read_u8().unwrap() as isize;                     }
-                }
-            } else {
-                match self.0[ip] {
-                    Token::LBracket => { skip += 1 },
-                    Token::RBracket => { skip -= 1 },
-                    _               => {           }
-                }
+fn parse(code: &str) -> Vec<Bfi> {
+    code.chars().filter_map(|c| Bfi::try_from(c).ok()).collect()
+}
+
+fn compile(parsed: &[Bfi]) -> Vec<Bci> {
+    let mut result = Vec::new();
+    let mut last = None;
+    let mut n = 0;
+    for i in parsed.iter().map(Option::Some) {
+        if i == last {
+            n += 1;
+        } else {
+            if let Some(ulast) = last {
+                match ulast {
+                    Bfi::Plus => result.push(Bci::Plus(n)),
+                    Bfi::Minus => result.push(Bci::Minus(n)),
+                    Bfi::Left => result.push(Bci::Left(n)),
+                    Bfi::Right => result.push(Bci::Right(n)),
+                    Bfi::LBracket => for _ in 0..n {result.push(Bci::LBracket)},
+                    Bfi::RBracket => for _ in 0..n {result.push(Bci::RBracket)},
+                    Bfi::Dot => for _ in 0..n {result.push(Bci::Dot)},
+                    Bfi::Comma => for _ in 0..n {result.push(Bci::Comma)},
+                };
             }
-            ip += 1;
+            last = i;
+            n = 1;
         }
-        Ok(())
     }
+    if let Some(ulast) = last {
+        match ulast {
+            Bfi::Plus => result.push(Bci::Plus(n)),
+            Bfi::Minus => result.push(Bci::Minus(n)),
+            Bfi::Left => result.push(Bci::Left(n)),
+            Bfi::Right => result.push(Bci::Right(n)),
+            Bfi::LBracket => for _ in 0..n {result.push(Bci::LBracket)},
+            Bfi::RBracket => for _ in 0..n {result.push(Bci::RBracket)},
+            Bfi::Dot => for _ in 0..n {result.push(Bci::Dot)},
+            Bfi::Comma => for _ in 0..n {result.push(Bci::Comma)},
+        };
+    }
+    result
+}
+
+fn eval(bc: &[Bci]) {
+    let mut mem = [0u32; 65536];
+    let mut mp = 0u16;
+    let mut ip = 0;
+    let mut stack = Vec::new();
+    // let mut i = 0;
+    while ip < bc.len() {
+        match bc[ip] {
+            Bci::Plus(n) => {
+                mem[mp as usize] = mem[mp as usize].overflowing_add(n as u32).0;
+                ip += 1;
+            },
+            Bci::Minus(n) => {
+                mem[mp as usize] = mem[mp as usize].overflowing_sub(n as u32).0;
+                ip += 1;
+            },
+            Bci::Left(n) => {
+                mp = mp.overflowing_sub(n as u16).0;
+                ip += 1;
+            },
+            Bci::Right(n) => {
+                mp = mp.overflowing_add(n as u16).0;
+                ip += 1;
+            },
+            Bci::LBracket => {
+                if mem[mp as usize] == 0 {
+                    let mut level = 1;
+                    while level != 0 {
+                        ip += 1;
+                        match bc[ip] {
+                            Bci::LBracket => level += 1,
+                            Bci::RBracket => level -= 1,
+                            _ => ()
+                        };
+                    }
+                    ip += 1;
+                } else {
+                    stack.push(ip);
+                    ip += 1;
+                }
+            },
+            Bci::RBracket => ip = stack.pop().unwrap(),
+            Bci::Dot => {
+                print!("{}", char::from_u32(mem[mp as usize]).unwrap_or('ᅠ'));
+                ip += 1;
+            },
+            Bci::Comma => {
+                mem[mp as usize] = read_next_char(&mut stdin()).unwrap() as u32;
+                ip += 1;
+            }
+        }
+        // i += 1;
+    }
+    // println!("\niterations: {}", i);
 }
 
 fn main() {
-    let read_line = || {
-        let mut line = String::new();
-        stdin().read_line(&mut line)?;
-        Ok::<String, Error>(line)
-    };
-
+    let mut code = String::new();
     println!("enter your code:");
-    read_line()
-    .map(|code| Program::from(code.as_str()))
-    .map(|program| print!("{}", program))
-    .unwrap();
+    stdin().read_line(&mut code).unwrap();
+    let code = code;
+    let parsed = parse(&code);
+    let bc = compile(&parsed);
+    // println!("{:?}", bc);
+    eval(&bc);
 }

@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 value-enum = "0.6.0"
+read_char = "0.1.1"
